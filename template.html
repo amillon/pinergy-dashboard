@@ -237,6 +237,13 @@
     <div id="chart-tariff-split" style="width:100%;height:340px;"></div>
   </div>
 
+  <div class="card" style="margin-top:16px;">
+    <p class="card-title">Profil de consommation par jour de semaine</p>
+    <p class="card-note" id="weekday-note"></p>
+    <div id="chart-weekday-profile" style="width:100%;height:320px;display:none;"></div>
+    <span class="flag" id="weekday-insufficient" style="display:none;"></span>
+  </div>
+
   <div class="opt-grid">
     <div class="card">
       <p class="card-title">Projection annuelle à consommation constante</p>
@@ -538,6 +545,59 @@ Plotly.newPlot('chart-tariff-split', [
   { type: 'scatter', mode: 'markers', name: 'Facture réelle (relevé Pinergy)', x: daily.map(d => fmtDateShort(d.date)), y: daily.map(d => d.amount),
     marker: { color: '#0F172A', size: 9, symbol: 'circle', line: { color: '#fff', width: 1.5 } }, hovertemplate: '%{x}<br>Facture réelle : %{y:.2f} €<extra></extra>' }
 ], { ...LAYOUT_BASE, barmode: 'stack', yaxis: { ...LAYOUT_BASE.yaxis, title: '€ / jour' } }, PLOTLY_CONFIG);
+
+// -- Profil de consommation par jour de semaine (historique cumulé) --
+const history = Array.isArray(RAW.history) ? RAW.history : [];
+const WEEKDAY_LABELS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+
+const kwhByWeekday = WEEKDAY_LABELS.map(() => []);
+history.forEach(rec => {
+  if (!rec || typeof rec.date !== 'string' || typeof rec.kwh !== 'number') return;
+  const d = new Date(rec.date.slice(0, 10) + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return;
+  const isoWeekday = d.getUTCDay() === 0 ? 7 : d.getUTCDay(); // 1=Lundi..7=Dimanche
+  kwhByWeekday[isoWeekday - 1].push(rec.kwh);
+});
+
+const weekdayStats = WEEKDAY_LABELS.map((label, idx) => {
+  const vals = kwhByWeekday[idx];
+  return {
+    label,
+    n: vals.length,
+    avgKwh: vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null
+  };
+});
+
+const totalDaysCollected = history.length;
+const hasEnoughWeekdayData = weekdayStats.some(w => w.n >= 2);
+
+if (hasEnoughWeekdayData) {
+  const withAvg = weekdayStats.filter(w => w.avgKwh !== null);
+  const maxAvg = Math.max(...withAvg.map(w => w.avgKwh));
+  const peak = withAvg.find(w => w.avgKwh === maxAvg);
+
+  document.getElementById('weekday-note').textContent =
+    'Moyenne de kWh par jour de la semaine, cumulée sur ' + totalDaysCollected + ' jour(s) d’historique (n = nombre d’occurrences par jour). '
+    + 'Jour le plus consommateur : ' + peak.label + ' (' + fmtKwh(peak.avgKwh) + ' kWh en moyenne, n=' + peak.n + ').';
+
+  document.getElementById('chart-weekday-profile').style.display = 'block';
+  Plotly.newPlot('chart-weekday-profile', [
+    {
+      type: 'bar',
+      x: weekdayStats.map(w => w.label),
+      y: weekdayStats.map(w => w.avgKwh),
+      text: weekdayStats.map(w => w.n > 0 ? 'n=' + w.n : 'n/a'),
+      textposition: 'outside',
+      marker: { color: weekdayStats.map(w => (peak && w.label === peak.label) ? CONVERTEO.red : CONVERTEO.cyan) },
+      hovertemplate: '%{x}<br>%{y:.2f} kWh de moyenne (%{text})<extra></extra>'
+    }
+  ], { ...LAYOUT_BASE, yaxis: { ...LAYOUT_BASE.yaxis, title: 'kWh moyen' } }, PLOTLY_CONFIG);
+} else {
+  const flag = document.getElementById('weekday-insufficient');
+  flag.style.display = 'inline-flex';
+  const dayWord = totalDaysCollected > 1 ? 'jours collectés' : 'jour collecté';
+  flag.textContent = 'Historique en cours de constitution (' + totalDaysCollected + ' ' + dayWord + ', analyse dès 2 semaines)';
+}
 
 // -- Projection annuelle --
 const annualKwh = avg7Kwh * 365;

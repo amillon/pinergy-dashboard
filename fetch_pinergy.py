@@ -54,6 +54,57 @@ def dump(obj):
     return obj
 
 
+def _iso_date(value) -> str:
+    """Return the plain YYYY-MM-DD for a datetime/date/str usage-day value."""
+    if hasattr(value, "date"):
+        return value.date().isoformat()
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)[:10]
+
+
+def merge_history(usage_day: list, fetched_at: str, history_path: Path) -> int:
+    """Append/update data/history.ndjson with today's usage.day entries.
+
+    One JSON line per calendar date: {date, kwh, amount, fetched_at}.
+    The 7-day sliding window returned by the API overlaps previous runs, so
+    entries are deduplicated by date — a duplicate date is overwritten by the
+    value from *this* run, since Pinergy can consolidate/revise a day's
+    figures after the fact and this run is always the most recent look at
+    that date. The file is created if it doesn't exist yet, and always
+    rewritten sorted by date.
+
+    Returns the number of distinct days now in the file.
+    """
+    entries: dict = {}
+    if history_path.exists():
+        for line in history_path.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            date_key = rec.get("date")
+            if date_key:
+                entries[date_key] = rec
+
+    for day in usage_day:
+        date_key = _iso_date(day.get("date"))
+        entries[date_key] = {
+            "date": date_key,
+            "kwh": day.get("kwh"),
+            "amount": day.get("amount"),
+            "fetched_at": fetched_at,
+        }
+
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps(entries[d], sort_keys=False) for d in sorted(entries.keys())]
+    history_path.write_text("\n".join(lines) + ("\n" if lines else ""))
+    return len(lines)
+
+
 def main() -> int:
     load_env_fallback()
 
@@ -94,6 +145,15 @@ def main() -> int:
     out_path = out_dir / "pinergy_data.json"
     out_path.write_text(json.dumps(out, indent=2, default=str))
     print(f"Wrote {out_path} ({out_path.stat().st_size} bytes)")
+
+    try:
+        history_path = out_dir / "history.ndjson"
+        day_count = merge_history(out["usage"]["day"], out["fetched_at"], history_path)
+        print(f"Updated {history_path} ({day_count} distinct day(s) on file)")
+    except Exception as exc:  # noqa: BLE001 - a broken history file must fail the run
+        print(f"ERROR: failed to update history.ndjson: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+
     return 0
 
 
