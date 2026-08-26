@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suivi conso électricité — Pinergy</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+  :root {
+    --navy: #231B40;
+    --navy-light: #352B5A;
+    --cyan: #2BD6D9;
+    --bg: #F8FAFC;
+    --white: #FFFFFF;
+    --slate: #475569;
+    --slate-light: #94A3B8;
+    --border: #E2E8F0;
+    --green-bg: #F0FDF4;
+    --green-text: #15803D;
+    --amber-bg: #FFFBEB;
+    --amber-text: #D97706;
+    --red-bg: #FEF2F2;
+    --red-text: #B91C1C;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--slate);
+  }
+  header {
+    background: var(--navy);
+    padding: 28px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  header .brand { display: flex; flex-direction: column; gap: 4px; }
+  header .brand .kicker {
+    color: var(--cyan);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+  header .brand h1 { color: #fff; font-size: 24px; font-weight: 800; margin: 0; }
+  header .status-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  header .status-pill .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green-text);
+    box-shadow: 0 0 0 3px rgba(21,128,61,0.25);
+  }
+  header .status-pill.warn .dot { background: var(--amber-text); box-shadow: 0 0 0 3px rgba(217,119,6,0.25); }
+  header .status-pill.alert .dot { background: var(--red-text); box-shadow: 0 0 0 3px rgba(185,28,28,0.25); }
+  main { max-width: 1280px; margin: 0 auto; padding: 32px 24px 60px; }
+  .page-title { font-size: 20px; font-weight: 800; color: var(--navy); margin: 0 0 4px; }
+  .page-context { font-size: 13px; color: var(--slate-light); margin: 0 0 24px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 32px; }
+  @media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  .kpi-card {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 22px;
+    box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+    position: relative;
+  }
+  .kpi-card.alert { border-color: rgba(185,28,28,0.35); background: linear-gradient(180deg, var(--red-bg) 0%, #fff 60%); }
+  .kpi-card.warn { border-color: rgba(217,119,6,0.35); background: linear-gradient(180deg, var(--amber-bg) 0%, #fff 60%); }
+  .kpi-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--slate-light); margin-bottom: 10px; }
+  .kpi-value { font-size: 30px; font-weight: 800; color: var(--navy); line-height: 1; margin-bottom: 4px; }
+  .kpi-value .unit { font-size: 15px; font-weight: 700; color: var(--slate); margin-left: 4px; }
+  .kpi-sub { font-size: 12.5px; color: var(--slate); margin-top: 8px; }
+  .kpi-delta { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-top: 8px; }
+  .kpi-delta.good { background: var(--green-bg); color: var(--green-text); }
+  .kpi-delta.bad { background: var(--red-bg); color: var(--red-text); }
+  .kpi-badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px; margin-top: 8px; }
+  .kpi-badge.ok { background: var(--green-bg); color: var(--green-text); }
+  .kpi-badge.warn { background: var(--amber-bg); color: var(--amber-text); }
+  .kpi-badge.alert { background: var(--red-bg); color: var(--red-text); }
+  .section-title {
+    font-size: 13px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--navy);
+    margin: 36px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+  }
+  .card { background: var(--white); border: 1px solid var(--border); border-radius: 16px; padding: 20px 20px 8px; box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+  .card-title { font-size: 14px; font-weight: 700; color: var(--navy); margin: 0 0 2px; }
+  .card-note { font-size: 12px; color: var(--slate-light); margin: 0 0 8px; }
+  .flag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--amber-bg);
+    color: var(--amber-text);
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 8px;
+    margin: 4px 0 10px;
+  }
+  .comment-block {
+    background: #fff;
+    border: 1px dashed var(--border);
+    border-left: 4px solid var(--cyan);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    color: var(--slate);
+    margin-top: 8px;
+  }
+  .comment-block b { color: var(--navy); }
+  .info-strip { display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0 18px; }
+  .info-chip { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 8px 14px; font-size: 12px; color: var(--slate); max-width: 420px; }
+  .info-chip b { color: var(--navy); display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+  .opt-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 16px; margin-top: 16px; }
+  @media (max-width: 900px) { .opt-grid { grid-template-columns: 1fr; } }
+  .bullet-list { margin: 8px 0 0; padding-left: 0; list-style: none; }
+  .bullet-list li { display: flex; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--slate); line-height: 1.5; }
+  .bullet-list li:last-child { border-bottom: none; }
+  .bullet-list .tag {
+    flex: none;
+    width: 26px; height: 26px;
+    border-radius: 8px;
+    background: var(--navy);
+    color: var(--cyan);
+    font-weight: 800;
+    font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .bullet-list .tag.highlight { background: var(--cyan); color: var(--navy); }
+  .callout { background: var(--green-bg); border: 1px solid rgba(21,128,61,0.25); border-radius: 14px; padding: 18px 20px; margin-top: 14px; }
+  .callout .callout-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--green-text); margin-bottom: 6px; }
+  .callout .callout-value { font-size: 26px; font-weight: 800; color: var(--green-text); }
+  .callout .callout-sub { font-size: 12.5px; color: var(--slate); margin-top: 6px; }
+  footer {
+    max-width: 1280px;
+    margin: 20px auto 40px;
+    padding: 20px 24px 0;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--slate-light);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  footer b { color: var(--slate); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="kicker">Converteo · Suivi énergie</span>
+    <h1>Suivi conso électricité — Pinergy</h1>
+  </div>
+  <div class="status-pill" id="status-pill"><span class="dot"></span> <span id="status-text">Chargement…</span></div>
+</header>
+
+<main>
+  <p class="page-title">Combien de temps me reste-t-il avant recharge ?</p>
+  <p class="page-context">Source : API Pinergy (non officielle) · Compte prépayé "Pinergy Smart" · Dernier relevé compteur : <b id="last-reading-inline"></b></p>
+
+  <div class="kpi-grid" id="kpi-grid"></div>
+
+  <div class="section-title">Consommation journalière — 7 derniers jours</div>
+  <div class="card">
+    <p class="card-title">kWh et coût (€) par jour</p>
+    <p class="card-note" id="daily-note">barres kWh (cyan) et € (navy) sur le même axe.</p>
+    <div id="chart-daily" style="width:100%;height:340px;"></div>
+  </div>
+
+  <div class="section-title">Évolution hebdomadaire</div>
+  <div class="card">
+    <p class="card-title">kWh et coût (€) par semaine (lundi au dimanche)</p>
+    <span class="flag" id="weekly-flag" style="display:none;"></span>
+    <div id="chart-weekly" style="width:100%;height:340px;"></div>
+  </div>
+
+  <div class="section-title">Vue mensuelle</div>
+  <div class="card" id="card-monthly" style="display:none;">
+    <p class="card-title">kWh et coût (€) par mois</p>
+    <span class="flag" id="monthly-flag" style="display:none;"></span>
+    <div id="chart-monthly" style="width:100%;height:320px;"></div>
+  </div>
+
+  <div id="section-compare">
+    <div class="section-title">Comparaison vs foyers similaires</div>
+    <p class="card-note" style="margin-top:-6px;margin-bottom:14px;">Comparaison fournie par Pinergy sur un échantillon de foyers similaires.</p>
+    <div class="grid-2">
+      <div class="card">
+        <p class="card-title">Coût (€) — mon foyer vs moyenne</p>
+        <div id="chart-compare-eur" style="width:100%;height:300px;"></div>
+      </div>
+      <div class="card">
+        <p class="card-title">Consommation (kWh) — mon foyer vs moyenne</p>
+        <div id="chart-compare-kwh" style="width:100%;height:300px;"></div>
+      </div>
+    </div>
+    <div class="comment-block" id="compare-comment"></div>
+  </div>
+
+  <div class="section-title">Optimisation consommation / dépense</div>
+  <p class="page-context" style="margin-bottom:10px;">Plan tarifaire reconstitué par régression sur les relevés journaliers (tarif plat 24h — pas de distinction jour/nuit). Constantes modifiables dans le bloc <code>TARIFF</code> du script si le plan change.</p>
+  <div class="info-strip">
+    <div class="info-chip"><b>Plan identifié</b>Pinergy Smart Standard 24h (pay-as-you-go) — seul plan domestique proposé par Pinergy</div>
+    <div class="info-chip"><b>Tarif publié Pinergy (Selectra, réf. août 2026)</b>34,49 c/kWh + ≈ 260 €/an de standing charge</div>
+    <div class="info-chip"><b>Repère marché (smart, bill pay)</b>meilleures offres ≈ 28–33 c/kWh, 230–290 €/an de fixe</div>
+  </div>
+
+  <div class="kpi-grid" id="kpi-grid-tariff"></div>
+
+  <div class="card" style="margin-top:16px;">
+    <p class="card-title">Décomposition fixe / variable de la facture journalière</p>
+    <p class="card-note" id="tariff-split-note"></p>
+    <div id="chart-tariff-split" style="width:100%;height:340px;"></div>
+  </div>
+
+  <div class="opt-grid">
+    <div class="card">
+      <p class="card-title">Projection annuelle à consommation constante</p>
+      <p class="card-note" id="projection-note"></p>
+      <div id="chart-annual-projection" style="width:100%;height:220px;"></div>
+      <div class="callout" id="callout-savings"></div>
+    </div>
+    <div class="card">
+      <p class="card-title">Leviers d'optimisation</p>
+      <p class="card-note">Par ordre d'impact décroissant.</p>
+      <ul class="bullet-list" id="levers-list"></ul>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  <span>Dernière lecture du compteur : <b id="last-reading-footer"></b> · Dernière mise à jour des données : <b id="fetched-at-footer"></b></span>
+  <span>Données API Pinergy (non officielle) — dashboard généré à titre personnel, non affilié à Pinergy</span>
+</footer>
+
+<script>
+// =====================================================================
+// Raw data injected at build time by build_dashboard.py from
+// data/pinergy_data.json (balance, usage.day/week/month, compare, fetched_at).
+// Contains no PII: the balance/usage/compare endpoints never return user,
+// house, credit-card or premises-number objects (see pypinergy models).
+// =====================================================================
+const RAW = __PINERGY_DATA_JSON__;
+
+const CONVERTEO = { navy: '#231B40', cyan: '#2BD6D9', slate: '#475569', green: '#15803D', amber: '#D97706', red: '#B91C1C', bg: '#F8FAFC', border: '#E2E8F0' };
+const LAYOUT_BASE = {
+  paper_bgcolor: '#FFFFFF',
+  plot_bgcolor: '#FFFFFF',
+  font: { color: CONVERTEO.slate, family: "'Plus Jakarta Sans', sans-serif", size: 12 },
+  margin: { l: 50, r: 20, t: 10, b: 40 },
+  legend: { orientation: 'h', y: 1.15, x: 0, font: { size: 12 } },
+  xaxis: { gridcolor: CONVERTEO.border, zeroline: false },
+  yaxis: { gridcolor: CONVERTEO.border, zeroline: false },
+  bargap: 0.32,
+  bargroupgap: 0.15
+};
+const PLOTLY_CONFIG = { displayModeBar: false, responsive: true };
+
+// ---- Format helpers ----
+function fmtEur(v, d = 2) { return v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }) + ' €'; }
+function fmtKwh(v, d = 1) { return v.toLocaleString('fr-FR', { minimumFractionDigits: d, maximumFractionDigits: d }); }
+function fmtPct(v) { const s = v >= 0 ? '+' : ''; return s + v.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %'; }
+function fmtDate(iso) {
+  const d = new Date(iso.replace(' ', 'T'));
+  return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) + ' UTC';
+}
+function fmtDateShort(iso) {
+  const d = new Date(iso.replace(' ', 'T'));
+  return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
+}
+function fmtDayMonth(iso) {
+  const d = new Date(iso.replace(' ', 'T'));
+  return d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', timeZone: 'UTC' });
+}
+function addDaysISO(dateStr, n) {
+  const d = new Date(dateStr.slice(0, 10) + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// ---- Normalize raw payload ----
+const balance = RAW.balance;
+const fetchedAt = RAW.fetched_at ? new Date(RAW.fetched_at) : new Date(balance.last_reading.replace(' ', 'T'));
+
+const daily = [...RAW.usage.day]
+  .sort((a, b) => a.date_ts - b.date_ts)
+  .map(d => ({ date: d.date.slice(0, 10), amount: d.amount, kwh: d.kwh }));
+
+const weekRaw = [...RAW.usage.week].sort((a, b) => a.date_ts - b.date_ts);
+const weekly = weekRaw.map((w, idx) => {
+  const dateOnly = w.date.slice(0, 10);
+  const weekStart = new Date(dateOnly + 'T00:00:00Z');
+  const daysElapsed = Math.floor((fetchedAt - weekStart) / 86400000) + 1;
+  const isLast = idx === weekRaw.length - 1;
+  const partial = isLast && daysElapsed < 7 && daysElapsed > 0;
+  return {
+    date: dateOnly, amount: w.amount, kwh: w.kwh, partial, daysElapsed,
+    label: 'Sem. ' + fmtDayMonth(dateOnly) + (partial ? '*' : '')
+  };
+});
+
+const monthRaw = [...RAW.usage.month].sort((a, b) => a.date_ts - b.date_ts);
+const monthly = monthRaw.map((m, idx) => {
+  const dateOnly = m.date.slice(0, 10);
+  const d = new Date(dateOnly + 'T00:00:00Z');
+  const isLast = idx === monthRaw.length - 1;
+  const partial = isLast && d.getUTCFullYear() === fetchedAt.getUTCFullYear() && d.getUTCMonth() === fetchedAt.getUTCMonth();
+  const label = d.toLocaleString('fr-FR', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  return { date: dateOnly, amount: m.amount, kwh: m.kwh, partial, label: label + (partial ? '*' : '') };
+});
+
+function normalizeCompare(period) {
+  if (!period || !period.available) return null;
+  return { euro: { mine: period.euro.users_home, avg: period.euro.average_home },
+           kwh:  { mine: period.kwh.users_home,  avg: period.kwh.average_home } };
+}
+const compareDay = RAW.compare ? normalizeCompare(RAW.compare.day) : null;
+const compareWeek = RAW.compare ? normalizeCompare(RAW.compare.week) : null;
+
+// ---- Derived KPIs ----
+const yesterday = daily[daily.length - 1];
+const dayBefore = daily.length > 1 ? daily[daily.length - 2] : null;
+const avg7Amount = daily.reduce((s, d) => s + d.amount, 0) / daily.length;
+const avg7Kwh = daily.reduce((s, d) => s + d.kwh, 0) / daily.length;
+const autonomyDays = balance.credit_balance / avg7Amount;
+
+const completedWeeks = weekly.filter(w => !w.partial);
+const lastFullWeek = completedWeeks.length ? completedWeeks[completedWeeks.length - 1] : null;
+const lastFullWeekAvgAmount = lastFullWeek ? lastFullWeek.amount / 7 : null;
+const deltaAvg7 = lastFullWeekAvgAmount !== null ? (avg7Amount - lastFullWeekAvgAmount) / lastFullWeekAvgAmount * 100 : null;
+
+const deltaYesterdayKwh = dayBefore ? (yesterday.kwh - dayBefore.kwh) / dayBefore.kwh * 100 : null;
+const deltaYesterdayAmount = dayBefore ? (yesterday.amount - dayBefore.amount) / dayBefore.amount * 100 : null;
+
+document.getElementById('last-reading-inline').textContent = fmtDate(balance.last_reading);
+document.getElementById('last-reading-footer').textContent = fmtDate(balance.last_reading);
+document.getElementById('fetched-at-footer').textContent = RAW.fetched_at ? fmtDate(RAW.fetched_at) : '—';
+
+// ---- Status pill ----
+const pill = document.getElementById('status-pill');
+let statusText = 'Compte prépayé actif — aucune coupure signalée';
+let statusCls = '';
+if (balance.power_off) { statusText = 'Coupure en cours — recharge requise immédiatement'; statusCls = 'alert'; }
+else if (balance.emergency_credit) { statusText = 'Crédit d’urgence activé'; statusCls = 'warn'; }
+else if (balance.credit_low) { statusText = 'Crédit faible — recharge recommandée'; statusCls = 'warn'; }
+if (statusCls) pill.classList.add(statusCls);
+document.getElementById('status-text').textContent = statusText;
+
+// ---- KPI cards: overview ----
+const autonomyStatus = autonomyDays < 3 ? 'alert' : (autonomyDays < 7 ? 'warn' : '');
+const autonomyBadgeClass = autonomyDays < 3 ? 'alert' : (autonomyDays < 7 ? 'warn' : 'ok');
+const autonomyBadgeText = autonomyDays < 3 ? 'Recharge urgente' : (autonomyDays < 7 ? 'À surveiller' : 'Confortable');
+
+const kpis = [
+  {
+    label: 'Solde prépayé restant',
+    value: fmtEur(balance.credit_balance),
+    sub: 'Dernière recharge : ' + fmtEur(balance.last_top_up_amount) + ' le ' + fmtDateShort(balance.last_top_up_time),
+    badge: balance.credit_low ? '<span class="kpi-badge alert">Crédit faible</span>' : '<span class="kpi-badge ok">Crédit suffisant</span>',
+    cls: balance.credit_low ? 'alert' : ''
+  },
+  {
+    label: 'Consommation de la veille (' + fmtDayMonth(yesterday.date) + ')',
+    value: fmtKwh(yesterday.kwh) + '<span class="unit">kWh</span>',
+    sub: fmtEur(yesterday.amount) + ' facturés le ' + fmtDateShort(yesterday.date),
+    delta: dayBefore ? '<span class="kpi-delta ' + (deltaYesterdayKwh <= 0 ? 'good' : 'bad') + '">' + fmtPct(deltaYesterdayKwh) + ' kWh vs J-1 (' + fmtPct(deltaYesterdayAmount) + ' €)</span>' : '',
+    cls: ''
+  },
+  {
+    label: 'Coût moyen journalier (' + daily.length + 'j)',
+    value: fmtEur(avg7Amount) + '<span class="unit">/ jour</span>',
+    sub: fmtKwh(avg7Kwh) + ' kWh/jour en moyenne',
+    delta: lastFullWeek ? '<span class="kpi-delta ' + (deltaAvg7 <= 0 ? 'good' : 'bad') + '">' + fmtPct(deltaAvg7) + ' vs dernière semaine pleine (' + fmtDayMonth(lastFullWeek.date) + ')</span>' : '',
+    cls: ''
+  },
+  {
+    label: 'Autonomie estimée',
+    value: autonomyDays.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '<span class="unit">jours</span>',
+    sub: 'Solde ÷ coût moyen journalier (' + fmtEur(balance.credit_balance) + ' ÷ ' + fmtEur(avg7Amount) + '/j)',
+    badge: '<span class="kpi-badge ' + autonomyBadgeClass + '">' + autonomyBadgeText + '</span>',
+    cls: autonomyStatus
+  }
+];
+
+const grid = document.getElementById('kpi-grid');
+kpis.forEach(k => {
+  const el = document.createElement('div');
+  el.className = 'kpi-card' + (k.cls ? ' ' + k.cls : '');
+  el.innerHTML = `
+    <div class="kpi-label">${k.label}</div>
+    <div class="kpi-value">${k.value}</div>
+    <div class="kpi-sub">${k.sub}</div>
+    ${k.delta || ''}
+    ${k.badge || ''}
+  `;
+  grid.appendChild(el);
+});
+
+document.getElementById('daily-note').textContent = 'Du ' + fmtDayMonth(daily[0].date) + ' au ' + fmtDayMonth(yesterday.date) + ' · barres kWh (cyan) et € (navy) sur le même axe.';
+
+// ---- Chart: daily ----
+Plotly.newPlot('chart-daily', [
+  { type: 'bar', name: 'kWh', x: daily.map(d => fmtDateShort(d.date)), y: daily.map(d => d.kwh),
+    marker: { color: CONVERTEO.cyan }, hovertemplate: '%{x}<br>%{y:.1f} kWh<extra></extra>' },
+  { type: 'bar', name: '€', x: daily.map(d => fmtDateShort(d.date)), y: daily.map(d => d.amount),
+    marker: { color: CONVERTEO.navy }, hovertemplate: '%{x}<br>%{y:.2f} €<extra></extra>' }
+], { ...LAYOUT_BASE, barmode: 'group', yaxis: { ...LAYOUT_BASE.yaxis, title: 'kWh / €' } }, PLOTLY_CONFIG);
+
+// ---- Chart: weekly ----
+const partialWeek = weekly.find(w => w.partial);
+if (partialWeek) {
+  const flag = document.getElementById('weekly-flag');
+  flag.style.display = 'inline-flex';
+  flag.textContent = '⚠ La semaine du ' + fmtDayMonth(partialWeek.date) + ' est en cours — ' + partialWeek.daysElapsed + ' jour(s) de données, non comparable aux semaines complètes';
+}
+Plotly.newPlot('chart-weekly', [
+  { type: 'bar', name: 'kWh', x: weekly.map(w => w.label), y: weekly.map(w => w.kwh),
+    marker: { color: weekly.map(w => w.partial ? 'rgba(43,214,217,0.4)' : CONVERTEO.cyan) },
+    hovertemplate: '%{x}<br>%{y:.1f} kWh<extra></extra>' },
+  { type: 'bar', name: '€', x: weekly.map(w => w.label), y: weekly.map(w => w.amount),
+    marker: { color: weekly.map(w => w.partial ? 'rgba(35,27,64,0.4)' : CONVERTEO.navy) },
+    hovertemplate: '%{x}<br>%{y:.2f} €<extra></extra>' }
+], { ...LAYOUT_BASE, barmode: 'group', yaxis: { ...LAYOUT_BASE.yaxis, title: 'kWh / €' } }, PLOTLY_CONFIG);
+
+// ---- Chart: monthly (only if 2+ months available) ----
+if (monthly.length >= 2) {
+  document.getElementById('card-monthly').style.display = 'block';
+  const partialMonth = monthly.find(m => m.partial);
+  if (partialMonth) {
+    const flag = document.getElementById('monthly-flag');
+    flag.style.display = 'inline-flex';
+    flag.textContent = '⚠ "' + partialMonth.label.replace('*', '') + '" est le mois en cours — volume non comparable à un mois plein. Les mois en bord de fenêtre de données peuvent aussi être partiels.';
+  }
+  Plotly.newPlot('chart-monthly', [
+    { type: 'bar', name: 'kWh', x: monthly.map(m => m.label), y: monthly.map(m => m.kwh),
+      marker: { color: 'rgba(43,214,217,0.5)' }, hovertemplate: '%{x}<br>%{y:.1f} kWh<extra></extra>' },
+    { type: 'bar', name: '€', x: monthly.map(m => m.label), y: monthly.map(m => m.amount),
+      marker: { color: 'rgba(35,27,64,0.55)' }, hovertemplate: '%{x}<br>%{y:.2f} €<extra></extra>' }
+  ], { ...LAYOUT_BASE, barmode: 'group', yaxis: { ...LAYOUT_BASE.yaxis, title: 'kWh / €', type: 'log' } }, PLOTLY_CONFIG);
+}
+
+// ---- Comparaison vs foyers similaires ----
+if (!compareDay && !compareWeek) {
+  document.getElementById('section-compare').style.display = 'none';
+} else {
+  const weekRangeLabel = lastFullWeek ? (fmtDayMonth(lastFullWeek.date) + '-' + fmtDayMonth(addDaysISO(lastFullWeek.date, 6))) : 'semaine de référence';
+  const dayLabel = 'Jour (' + fmtDayMonth(yesterday.date) + ')';
+  const weekLabel = 'Semaine (' + weekRangeLabel + ')';
+  const cats = [], eurMine = [], eurAvg = [], kwhMine = [], kwhAvg = [];
+  if (compareDay) { cats.push(dayLabel); eurMine.push(compareDay.euro.mine); eurAvg.push(compareDay.euro.avg); kwhMine.push(compareDay.kwh.mine); kwhAvg.push(compareDay.kwh.avg); }
+  if (compareWeek) { cats.push(weekLabel); eurMine.push(compareWeek.euro.mine); eurAvg.push(compareWeek.euro.avg); kwhMine.push(compareWeek.kwh.mine); kwhAvg.push(compareWeek.kwh.avg); }
+
+  Plotly.newPlot('chart-compare-eur', [
+    { type: 'bar', name: 'Mon foyer', x: cats, y: eurMine, marker: { color: CONVERTEO.cyan }, hovertemplate: '%{x}<br>%{y:.2f} €<extra>Mon foyer</extra>' },
+    { type: 'bar', name: 'Foyers similaires (moy.)', x: cats, y: eurAvg, marker: { color: CONVERTEO.slate }, hovertemplate: '%{x}<br>%{y:.2f} €<extra>Moyenne</extra>' }
+  ], { ...LAYOUT_BASE, barmode: 'group', yaxis: { ...LAYOUT_BASE.yaxis, title: '€' } }, PLOTLY_CONFIG);
+
+  Plotly.newPlot('chart-compare-kwh', [
+    { type: 'bar', name: 'Mon foyer', x: cats, y: kwhMine, marker: { color: CONVERTEO.cyan }, hovertemplate: '%{x}<br>%{y:.1f} kWh<extra>Mon foyer</extra>' },
+    { type: 'bar', name: 'Foyers similaires (moy.)', x: cats, y: kwhAvg, marker: { color: CONVERTEO.slate }, hovertemplate: '%{x}<br>%{y:.1f} kWh<extra>Moyenne</extra>' }
+  ], { ...LAYOUT_BASE, barmode: 'group', yaxis: { ...LAYOUT_BASE.yaxis, title: 'kWh' } }, PLOTLY_CONFIG);
+
+  const parts = [];
+  if (compareDay) {
+    const kwhDeltaDay = (compareDay.kwh.mine - compareDay.kwh.avg) / compareDay.kwh.avg * 100;
+    const eurDeltaDay = (compareDay.euro.mine - compareDay.euro.avg) / compareDay.euro.avg * 100;
+    parts.push('Le ' + fmtDayMonth(yesterday.date) + ', mon foyer a consommé <b>' + fmtPct(kwhDeltaDay) + '</b> en kWh vs la moyenne des foyers similaires (' + fmtKwh(compareDay.kwh.mine) + ' vs ' + fmtKwh(compareDay.kwh.avg) + ' kWh), pour un coût <b>' + fmtPct(eurDeltaDay) + '</b> (' + fmtEur(compareDay.euro.mine) + ' vs ' + fmtEur(compareDay.euro.avg) + ').');
+  }
+  if (compareWeek) {
+    const kwhDeltaWeek = (compareWeek.kwh.mine - compareWeek.kwh.avg) / compareWeek.kwh.avg * 100;
+    const eurDeltaWeek = (compareWeek.euro.mine - compareWeek.euro.avg) / compareWeek.euro.avg * 100;
+    parts.push('Sur la ' + weekLabel.toLowerCase() + ', le volume est ' + fmtPct(kwhDeltaWeek) + ' vs la moyenne (' + fmtKwh(compareWeek.kwh.mine) + ' vs ' + fmtKwh(compareWeek.kwh.avg) + ' kWh) alors que le coût est <b>' + fmtPct(eurDeltaWeek) + '</b> (' + fmtEur(compareWeek.euro.mine) + ' vs ' + fmtEur(compareWeek.euro.avg) + ').');
+  }
+  parts.push('Écart à vérifier le cas échéant : tarif horaire (jour/nuit), plan tarifaire souscrit, ou méthode de calcul de la moyenne Pinergy.');
+  document.getElementById('compare-comment').innerHTML = '<b>Lecture :</b> ' + parts.join(' ');
+}
+
+// =====================================================================
+// ==== TARIFF CONFIG — update these values if the Pinergy plan or the ====
+// ==== market benchmark changes. Not derived from the fetched data.  ====
+// =====================================================================
+const TARIFF = {
+  fixedPerDay: 1.27,           // €/jour — reconstitué par régression (standing charge + service charge PAYG Pinergy)
+  variablePerKwh: 0.369,       // €/kWh — reconstitué par régression
+  marketBestRate: 0.30,        // €/kWh — repère marché (meilleures offres smart bill pay)
+  marketBestFixedAnnual: 260   // €/an — repère marché (bas de fourchette 230-290 €/an)
+};
+
+const effectiveRate = avg7Amount / avg7Kwh; // €/kWh tout compris, cohérent avec le KPI "coût moyen journalier" plus haut
+
+const tariffGrid = document.getElementById('kpi-grid-tariff');
+tariffGrid.style.gridTemplateColumns = 'repeat(4, 1fr)';
+const tariffEl = document.createElement('div');
+tariffEl.className = 'kpi-card warn';
+tariffEl.style.gridColumn = 'span 4';
+tariffEl.innerHTML = `
+  <div class="kpi-label">Taux effectif tout compris (${daily.length}j)</div>
+  <div class="kpi-value">${effectiveRate.toLocaleString('fr-FR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}<span class="unit">€/kWh</span></div>
+  <div class="kpi-sub">Décomposition : ${(TARIFF.variablePerKwh * 100).toLocaleString('fr-FR', { minimumFractionDigits: 1 })} c/kWh variable + ${fmtEur(TARIFF.fixedPerDay)}/jour de fixe</div>
+  <span class="kpi-badge warn">Plan prépayé PAYG</span>
+`;
+tariffGrid.appendChild(tariffEl);
+
+document.getElementById('tariff-split-note').textContent = 'Part fixe reconstituée (' + fmtEur(TARIFF.fixedPerDay) + '/jour, navy) + part variable (kWh × ' + TARIFF.variablePerKwh + ' €, cyan) — points noirs = facture réelle relevée par Pinergy.';
+
+const fixedSeries = daily.map(() => TARIFF.fixedPerDay);
+const variableSeries = daily.map(d => d.kwh * TARIFF.variablePerKwh);
+Plotly.newPlot('chart-tariff-split', [
+  { type: 'bar', name: 'Part fixe (' + fmtEur(TARIFF.fixedPerDay) + '/j)', x: daily.map(d => fmtDateShort(d.date)), y: fixedSeries,
+    marker: { color: CONVERTEO.navy }, hovertemplate: '%{x}<br>Fixe : %{y:.2f} €<extra></extra>' },
+  { type: 'bar', name: 'Part variable (kWh × ' + TARIFF.variablePerKwh + ' €)', x: daily.map(d => fmtDateShort(d.date)), y: variableSeries,
+    marker: { color: CONVERTEO.cyan }, hovertemplate: '%{x}<br>Variable : %{y:.2f} €<extra></extra>' },
+  { type: 'scatter', mode: 'markers', name: 'Facture réelle (relevé Pinergy)', x: daily.map(d => fmtDateShort(d.date)), y: daily.map(d => d.amount),
+    marker: { color: '#0F172A', size: 9, symbol: 'circle', line: { color: '#fff', width: 1.5 } }, hovertemplate: '%{x}<br>Facture réelle : %{y:.2f} €<extra></extra>' }
+], { ...LAYOUT_BASE, barmode: 'stack', yaxis: { ...LAYOUT_BASE.yaxis, title: '€ / jour' } }, PLOTLY_CONFIG);
+
+// -- Projection annuelle --
+const annualKwh = avg7Kwh * 365;
+const currentFixedAnnual = TARIFF.fixedPerDay * 365;
+const currentVariableAnnual = annualKwh * TARIFF.variablePerKwh;
+const currentTotalAnnual = currentFixedAnnual + currentVariableAnnual;
+const marketVariableAnnual = annualKwh * TARIFF.marketBestRate;
+const marketTotalAnnual = TARIFF.marketBestFixedAnnual + marketVariableAnnual;
+const savingsAnnual = currentTotalAnnual - marketTotalAnnual;
+const fixedSharePct = currentFixedAnnual / currentTotalAnnual * 100;
+const variableSharePct = 100 - fixedSharePct;
+
+document.getElementById('projection-note').textContent = 'Sur la base de la consommation moyenne observée sur ' + daily.length + ' jours (' + fmtKwh(avg7Kwh, 2) + ' kWh/j).';
+
+Plotly.newPlot('chart-annual-projection', [
+  { type: 'bar', orientation: 'h', name: 'Part fixe', y: ['Meilleure offre marché (est.)', 'Plan actuel (Pinergy PAYG)'],
+    x: [TARIFF.marketBestFixedAnnual, currentFixedAnnual], marker: { color: CONVERTEO.navy }, hovertemplate: '%{y}<br>Fixe : %{x:.0f} €/an<extra></extra>' },
+  { type: 'bar', orientation: 'h', name: 'Part variable', y: ['Meilleure offre marché (est.)', 'Plan actuel (Pinergy PAYG)'],
+    x: [marketVariableAnnual, currentVariableAnnual], marker: { color: CONVERTEO.cyan }, hovertemplate: '%{y}<br>Variable : %{x:.0f} €/an<extra></extra>',
+    text: [fmtEur(marketTotalAnnual, 0), fmtEur(currentTotalAnnual, 0)], textposition: 'outside' }
+], { ...LAYOUT_BASE, barmode: 'stack', margin: { l: 170, r: 60, t: 10, b: 40 }, xaxis: { ...LAYOUT_BASE.xaxis, title: '€/an' } }, PLOTLY_CONFIG);
+
+document.getElementById('callout-savings').innerHTML = `
+  <div class="callout-label">Économie potentielle estimée</div>
+  <div class="callout-value">≈ ${savingsAnnual.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} €/an</div>
+  <div class="callout-sub">${fmtEur(currentTotalAnnual, 0)}/an au plan actuel (dont ${fmtEur(currentFixedAnnual, 0)} de fixe incompressible, soit ${fixedSharePct.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} % de la facture) vs ${fmtEur(marketTotalAnnual, 0)}/an en passant sur une offre smart bill pay au tarif marché (${(TARIFF.marketBestRate * 100).toLocaleString('fr-FR')} c/kWh + ${TARIFF.marketBestFixedAnnual} €/an de fixe). Estimation à consommation constante — hors éventuelle réduction d'usage et hors variation saisonnière.</div>
+`;
+
+// -- Leviers d'optimisation --
+const compareDayKwhDeltaTxt = compareDay
+  ? fmtPct((compareDay.kwh.mine - compareDay.kwh.avg) / compareDay.kwh.avg * 100) + ' de kWh vs les foyers similaires (comparaison Pinergy, ' + fmtDayMonth(yesterday.date) + ')'
+  : 'un volume comparable aux données disponibles (voir comparaison ci-dessus si disponible)';
+
+const levers = [
+  { tag: '1', highlight: false, html: 'Le <b>fixe (' + fmtEur(TARIFF.fixedPerDay) + '/j, ≈ ' + fmtEur(currentFixedAnnual, 0) + '/an) est incompressible</b> quel que soit le geste de sobriété : réduire les kWh n’agit que sur <b>≈ ' + variableSharePct.toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' % de la facture</b> (la part variable).' },
+  { tag: '2', highlight: false, html: 'Le tarif est <b>plat 24h</b> (pas d’heures creuses détectées) : <b>aucun intérêt à décaler la consommation la nuit</b> sur ce plan.' },
+  { tag: '3', highlight: true, html: '<b>Levier n°1 : changer de plan / fournisseur</b> — passer du prépayé Pinergy PAYG à une offre smart en bill pay (≈ 28-33 c/kWh, 230-290 €/an de fixe). Économie estimée : <b>≈ 300–450 €/an</b>.' },
+  { tag: '4', highlight: false, html: 'Le foyer consomme déjà <b>' + compareDayKwhDeltaTxt + '</b> — la marge de manœuvre restante sur le volume est donc limitée ; l’essentiel du gain possible est sur le <b>plan tarifaire</b>, pas sur l’usage.' }
+];
+const leversList = document.getElementById('levers-list');
+levers.forEach(l => {
+  const li = document.createElement('li');
+  li.innerHTML = '<span class="tag' + (l.highlight ? ' highlight' : '') + '">' + l.tag + '</span><span>' + l.html + '</span>';
+  leversList.appendChild(li);
+});
+</script>
+
+</body>
+</html>
