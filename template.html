@@ -229,6 +229,21 @@
       <div id="chart-weekly" style="width:100%;height:340px;"></div>
     </div>
 
+    <div class="section-title">Calendrier de consommation</div>
+    <div class="card" id="card-heat-calendar" style="display:none;">
+      <p class="card-title">kWh par jour — vue calendrier</p>
+      <p class="card-note" id="heat-calendar-note"></p>
+      <div id="chart-heat-calendar" style="width:100%;height:260px;"></div>
+    </div>
+
+    <div class="section-title">Profil horaire</div>
+    <div class="card" id="card-heat-hourly" style="display:none;">
+      <p class="card-title">kWh par heure et par jour</p>
+      <p class="card-note" id="heat-hourly-note"></p>
+      <span class="flag" id="heat-hourly-flag" style="display:none;"></span>
+      <div id="chart-heat-hourly" style="width:100%;height:560px;"></div>
+    </div>
+
     <div class="section-title">Vue mensuelle</div>
     <div class="card" id="card-monthly" style="display:none;">
       <p class="card-title">kWh et coût (€) par mois</p>
@@ -260,6 +275,22 @@
       <div class="info-chip"><b>Plan identifié</b>Pinergy Smart Standard 24h (pay-as-you-go) — seul plan domestique proposé par Pinergy</div>
       <div class="info-chip"><b>Tarif publié Pinergy (Selectra, réf. août 2026)</b>34,49 c/kWh + ≈ 260 €/an de standing charge</div>
       <div class="info-chip"><b>Repère marché (smart, bill pay)</b>meilleures offres ≈ 28–33 c/kWh, 230–290 €/an de fixe</div>
+    </div>
+
+    <div class="section-title">Quand consomme-t-on le plus ?</div>
+    <div id="section-peak" style="display:none;">
+      <div class="kpi-grid" id="kpi-grid-peak"></div>
+      <span class="flag" id="peak-flag" style="display:none;"></span>
+      <div class="card" style="margin-top:16px;">
+        <p class="card-title">Consommation moyenne par heure de la journée</p>
+        <p class="card-note" id="peak-note"></p>
+        <div id="chart-peak-hours" style="width:100%;height:340px;"></div>
+      </div>
+      <div class="card" style="margin-top:16px;" id="card-peak-weekday">
+        <p class="card-title">Jour de semaine × heure</p>
+        <p class="card-note" id="peak-weekday-note"></p>
+        <div id="chart-peak-weekday" style="width:100%;height:320px;"></div>
+      </div>
     </div>
 
     <div class="kpi-grid" id="kpi-grid-tariff"></div>
@@ -550,6 +581,181 @@ function renderSuiviTab() {
     parts.push('Écart à vérifier le cas échéant : tarif horaire (jour/nuit), plan tarifaire souscrit, ou méthode de calcul de la moyenne Pinergy.');
     document.getElementById('compare-comment').innerHTML = '<b>Lecture :</b> ' + parts.join(' ');
   }
+
+  renderHeatmaps();
+}
+
+// ---- Heatmaps (GitHub-style calendar + hour x day) ----
+const HEAT_SCALE = [[0, '#E6F9FA'], [0.35, '#7FE3E5'], [0.7, '#2BD6D9'], [1, '#231B40']];
+const DOW_LABELS = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+
+function mondayOf(iso) {
+  const d = new Date(iso + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+// ---- Hourly analysis (shared): one record per COMPLETE day, 24 hourly kWh ----
+// A day still in progress at fetch time is excluded: it would bias the
+// averages toward the early hours.
+function hourlyDays() {
+  // Complete = the record was fetched on a later calendar day than its own date.
+  return (Array.isArray(RAW.halfhourly) ? RAW.halfhourly : [])
+    .filter(r => r.date && r.fetched_at && r.date < r.fetched_at.slice(0, 10) && Array.isArray(r.kwh) && r.kwh.length === 48)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map(r => ({
+      date: r.date,
+      dow: (new Date(r.date + 'T00:00:00Z').getUTCDay() + 6) % 7,   // 0 = Monday
+      slots: r.kwh,
+      hours: Array.from({ length: 24 }, (_, h) => r.kwh[2 * h] + r.kwh[2 * h + 1])
+    }));
+}
+
+function renderPeakHours() {
+  const days = hourlyDays();
+  if (days.length < 1) return;
+  const n = days.length;
+  const hourLabels = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0') + 'h');
+  const sum = a => a.reduce((x, y) => x + y, 0);
+  const avg = hourLabels.map((_, h) => sum(days.map(d => d.hours[h])) / n);
+  const mins = hourLabels.map((_, h) => Math.min(...days.map(d => d.hours[h])));
+  const maxs = hourLabels.map((_, h) => Math.max(...days.map(d => d.hours[h])));
+  const total = sum(avg);
+  const rank = avg.map((v, h) => h).sort((a, b) => avg[b] - avg[a]);
+  const top3 = rank.slice(0, 3);
+  const top3Share = sum(top3.map(h => avg[h])) / total * 100;
+  const eveningShare = sum(avg.slice(18, 24)) / total * 100;
+  const nightShare = sum(avg.slice(0, 6)) / total * 100;
+  // Standing load estimate: lowest half-hour of each day x 48 (a lower bound).
+  const baseline = sum(days.map(d => Math.min(...d.slots) * 48)) / n;
+  const baselineShare = baseline / total * 100;
+
+  document.getElementById('section-peak').style.display = 'block';
+  if (n < 14) {
+    const flag = document.getElementById('peak-flag');
+    flag.style.display = 'inline-flex';
+    flag.textContent = 'Historique en cours de constitution (' + n + ' jour(s) complet(s)) — l’API ne fournit que 7 jours, les moyennes se fiabilisent à chaque mise à jour.';
+  }
+
+  const hr = h => hourLabels[h] + '–' + String((h + 1) % 24).padStart(2, '0') + 'h';
+  const cards = [
+    { label: 'Heure de pointe (moyenne)', value: hourLabels[rank[0]], unit: '', sub: fmtKwh(avg[rank[0]], 2) + ' kWh en moyenne sur ' + hr(rank[0]), cls: 'warn' },
+    { label: '3 heures les plus chargées', value: fmtKwh(top3Share, 0), unit: '% du total', sub: top3.slice().sort((a, b) => a - b).map(h => hourLabels[h]).join(' · '), cls: '' },
+    { label: 'Soirée 18h–24h', value: fmtKwh(eveningShare, 0), unit: '% du total', sub: 'Nuit 00h–06h : ' + fmtKwh(nightShare, 0) + ' %', cls: '' },
+    { label: 'Talon de veille (estimé)', value: fmtKwh(baseline, 2), unit: 'kWh/jour', sub: '≈ ' + fmtKwh(baselineShare, 0) + ' % de la conso · borne basse (plus bas demi-heure × 48)', cls: '' }
+  ];
+  const grid = document.getElementById('kpi-grid-peak');
+  grid.style.gridTemplateColumns = 'repeat(4, 1fr)';
+  grid.innerHTML = cards.map(c => '<div class="kpi-card ' + c.cls + '"><div class="kpi-label">' + c.label + '</div>'
+    + '<div class="kpi-value">' + c.value + (c.unit ? '<span class="unit">' + c.unit + '</span>' : '') + '</div>'
+    + '<div class="kpi-sub">' + c.sub + '</div></div>').join('');
+
+  document.getElementById('peak-note').textContent =
+    'Moyenne sur ' + n + ' jour(s) complet(s) (' + fmtDateShort(days[0].date) + ' → ' + fmtDateShort(days[n - 1].date) + '). '
+    + 'Barres = moyenne, moustaches = min et max observés : un écart large signale une charge ponctuelle (appareil) plutôt qu’une habitude. '
+    + 'Tarif plat 24h : décaler la conso ne change pas le prix, mais identifie quoi réduire.';
+  Plotly.newPlot('chart-peak-hours', [{
+    type: 'bar', x: hourLabels, y: avg,
+    marker: { color: hourLabels.map((_, h) => top3.includes(h) ? CONVERTEO.red : CONVERTEO.cyan) },
+    error_y: { type: 'data', symmetric: false, array: maxs.map((m, h) => m - avg[h]), arrayminus: avg.map((a, h) => a - mins[h]), color: 'rgba(71,85,105,0.55)', thickness: 1.2, width: 3 },
+    customdata: mins.map((m, h) => [m, maxs[h]]),
+    hovertemplate: '%{x}<br>moyenne %{y:.2f} kWh<br>min %{customdata[0]:.2f} · max %{customdata[1]:.2f}<extra></extra>'
+  }], { ...LAYOUT_BASE, bargap: 0.25, yaxis: { ...LAYOUT_BASE.yaxis, title: 'kWh / heure' }, xaxis: { ...LAYOUT_BASE.xaxis, type: 'category' } }, PLOTLY_CONFIG);
+
+  // Weekday x hour: only meaningful once each weekday has been seen at least twice.
+  const perDow = DOW_LABELS.map((_, w) => days.filter(d => d.dow === w));
+  const enough = perDow.every(a => a.length >= 2);
+  const card = document.getElementById('card-peak-weekday');
+  if (!enough) {
+    card.style.display = 'none';
+    return;
+  }
+  const z = perDow.map(ds => hourLabels.map((_, h) => sum(ds.map(d => d.hours[h])) / ds.length));
+  const text = perDow.map((ds, w) => hourLabels.map((_, h) => DOW_LABELS[w] + ' ' + hr(h) + '<br>' + fmtKwh(z[w][h], 2) + ' kWh (n=' + ds.length + ')'));
+  document.getElementById('peak-weekday-note').textContent = 'Moyenne par jour de semaine et par heure (n = occurrences de chaque jour, de ' + Math.min(...perDow.map(a => a.length)) + ' à ' + Math.max(...perDow.map(a => a.length)) + ').';
+  Plotly.newPlot('chart-peak-weekday', [{
+    type: 'heatmap', x: hourLabels, y: DOW_LABELS, z, text, hoverinfo: 'text', xgap: 2, ygap: 2,
+    colorscale: HEAT_SCALE, colorbar: { title: 'kWh/h', thickness: 12, len: 0.9 }
+  }], { ...LAYOUT_BASE, margin: { l: 50, r: 20, t: 10, b: 40 }, xaxis: { type: 'category', showgrid: false, zeroline: false }, yaxis: { autorange: 'reversed', showgrid: false, zeroline: false, type: 'category' } }, PLOTLY_CONFIG);
+}
+
+function renderHeatmaps() {
+  // -- Calendar: columns = weeks (Mon start), rows = weekdays, from history[] --
+  const hist = (Array.isArray(RAW.history) ? RAW.history : []).filter(r => r.date && r.kwh !== null && r.kwh !== undefined);
+  if (hist.length >= 2) {
+    const byDate = {};
+    hist.forEach(r => { byDate[r.date] = r.kwh; });
+    const dates = Object.keys(byDate).sort();
+    const first = mondayOf(dates[0]);
+    const nWeeks = Math.floor((new Date(mondayOf(dates[dates.length - 1]) + 'T00:00:00Z') - new Date(first + 'T00:00:00Z')) / (7 * 86400000)) + 1;
+    const z = DOW_LABELS.map(() => Array(nWeeks).fill(null));
+    const text = DOW_LABELS.map(() => Array(nWeeks).fill(''));
+    const weekStarts = [];
+    for (let w = 0; w < nWeeks; w++) {
+      const ws = addDaysISO(first, w * 7);
+      weekStarts.push(ws);
+      for (let dow = 0; dow < 7; dow++) {
+        const day = addDaysISO(ws, dow);
+        if (byDate[day] !== undefined) {
+          z[dow][w] = byDate[day];
+          text[dow][w] = DOW_LABELS[dow] + ' ' + fmtDateShort(day) + '<br>' + fmtKwh(byDate[day], 2) + ' kWh';
+        }
+      }
+    }
+    // Month label under the first week that starts a new month.
+    const tickvals = [], ticktext = [];
+    weekStarts.forEach((ws, i) => {
+      const m = ws.slice(0, 7);
+      if (i === 0 || m !== weekStarts[i - 1].slice(0, 7)) {
+        tickvals.push(i);
+        ticktext.push(new Date(ws + 'T00:00:00Z').toLocaleString('fr-FR', { month: 'short', timeZone: 'UTC' }));
+      }
+    });
+    const vals = hist.map(r => r.kwh);
+    const maxDay = dates.reduce((a, d) => byDate[d] > byDate[a] ? d : a, dates[0]);
+    document.getElementById('card-heat-calendar').style.display = 'block';
+    document.getElementById('heat-calendar-note').textContent =
+      dates.length + ' jours (' + fmtDateShort(dates[0]) + ' → ' + fmtDateShort(dates[dates.length - 1]) + '), une case = un jour, plus foncé = plus de kWh. '
+      + 'Jour max : ' + fmtDateShort(maxDay) + ' (' + fmtKwh(byDate[maxDay], 2) + ' kWh) · moyenne ' + fmtKwh(vals.reduce((a, b) => a + b, 0) / vals.length, 2) + ' kWh/j.';
+    Plotly.newPlot('chart-heat-calendar', [{
+      type: 'heatmap', z, text, hoverinfo: 'text', xgap: 3, ygap: 3, hoverongaps: false,
+      colorscale: HEAT_SCALE, colorbar: { title: 'kWh', thickness: 12, len: 0.9 }
+    }], {
+      ...LAYOUT_BASE, margin: { l: 40, r: 20, t: 34, b: 10 },
+      xaxis: { tickvals, ticktext, showgrid: false, zeroline: false, constrain: 'domain', side: 'top' },
+      yaxis: { tickvals: [0, 1, 2, 3, 4, 5, 6], ticktext: DOW_LABELS, autorange: 'reversed', showgrid: false, zeroline: false, scaleanchor: 'x', constrain: 'domain' }
+    }, PLOTLY_CONFIG);
+  }
+
+  // -- Hourly: rows = hour of day, columns = days, from halfhourly[] --
+  const hh = hourlyDays();
+  if (hh.length >= 1) {
+    const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, '0') + 'h');
+    const xs = hh.map(r => DOW_LABELS[(new Date(r.date + 'T00:00:00Z').getUTCDay() + 6) % 7] + ' ' + fmtDayMonth(r.date));
+    const z = hours.map((_, h) => hh.map(r => r.hours[h]));
+    const text = hours.map((hl, h) => hh.map((r, i) => xs[i] + ' · ' + hl + '–' + String(h + 1).padStart(2, '0') + 'h<br>' + fmtKwh(z[h][i], 2) + ' kWh'));
+    const avgByHour = z.map(row => row.reduce((a, b) => a + b, 0) / row.length);
+    const total = avgByHour.reduce((a, b) => a + b, 0);
+    const peakH = avgByHour.indexOf(Math.max(...avgByHour));
+    const night = avgByHour.slice(0, 6).reduce((a, b) => a + b, 0);
+    document.getElementById('card-heat-hourly').style.display = 'block';
+    document.getElementById('heat-hourly-note').textContent =
+      'Heure locale du relevé, une case = un kWh cumulé sur l’heure. Heure la plus chargée en moyenne : ' + hours[peakH] + ' (' + fmtKwh(avgByHour[peakH], 2) + ' kWh). '
+      + 'Part 00h–06h : ' + fmtKwh(night / total * 100, 0) + ' % de la conso.';
+    if (hh.length < 14) {
+      const flag = document.getElementById('heat-hourly-flag');
+      flag.style.display = 'inline-flex';
+      flag.textContent = 'Historique en cours de constitution (' + hh.length + ' jour(s) collecté(s)) — l’API ne fournit que les 7 derniers jours, le profil s’enrichit à chaque mise à jour.';
+    }
+    Plotly.newPlot('chart-heat-hourly', [{
+      type: 'heatmap', x: xs, y: hours, z, text, hoverinfo: 'text', xgap: 3, ygap: 3,
+      colorscale: HEAT_SCALE, colorbar: { title: 'kWh/h', thickness: 12, len: 0.9 }
+    }], {
+      ...LAYOUT_BASE, margin: { l: 50, r: 20, t: 10, b: 50 },
+      xaxis: { type: 'category', showgrid: false, zeroline: false, tickangle: hh.length > 14 ? -60 : 0 },
+      yaxis: { type: 'category', autorange: 'reversed', showgrid: false, zeroline: false }
+    }, PLOTLY_CONFIG);
+  }
 }
 
 // =====================================================================
@@ -563,6 +769,7 @@ function renderSuiviTab() {
 // ==== market benchmark changes. Not derived from the fetched data.  ====
 // =====================================================================
 function renderOptimisationTab() {
+  renderPeakHours();
   const TARIFF = {
     fixedPerDay: 1.27,           // €/jour — reconstitué par régression (standing charge + service charge PAYG Pinergy)
     variablePerKwh: 0.369,       // €/kWh — reconstitué par régression

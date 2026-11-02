@@ -16,22 +16,23 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 DATA_PATH = ROOT / "data" / "pinergy_data.json"
 HISTORY_PATH = ROOT / "data" / "history.ndjson"
+HALFHOURLY_PATH = ROOT / "data" / "history_halfhourly.ndjson"
 TEMPLATE_PATH = ROOT / "template.html"
 OUT_PATH = ROOT / "public" / "index.html"
 PLACEHOLDER = "__PINERGY_DATA_JSON__"
 
 
-def load_history() -> list:
+def load_history(path: Path = HISTORY_PATH) -> list:
     """Read data/history.ndjson (one JSON record per line) if present.
 
     Malformed lines are skipped rather than failing the build — the history
     file is a nice-to-have for the weekday-profile chart, not a hard
     dependency of the dashboard.
     """
-    if not HISTORY_PATH.exists():
+    if not path.exists():
         return []
     records = []
-    for line in HISTORY_PATH.read_text().splitlines():
+    for line in path.read_text().splitlines():
         line = line.strip()
         if not line:
             continue
@@ -56,6 +57,9 @@ def main() -> int:
     history = load_history()
     data["history"] = history
     print(f"Loaded {len(history)} history record(s) from {HISTORY_PATH}")
+    halfhourly = load_history(HALFHOURLY_PATH)
+    data["halfhourly"] = halfhourly
+    print(f"Loaded {len(halfhourly)} half-hourly day(s) from {HALFHOURLY_PATH}")
 
     if not TEMPLATE_PATH.exists():
         print(f"ERROR: template not found: {TEMPLATE_PATH}", file=sys.stderr)
